@@ -283,16 +283,36 @@
       (stmt (comp-stmt)
             (id "=" exp)
             ("return" exp)
-            ("if" stmt "else" stmt)
+            ("else" exp-if)            
             (exp))
+      (exp-if ("if" "if-(" exp "if-)" stmt))
       (stmts (stmts ";" stmts) (stmt)))
     '((assoc ";") (assoc ",")
       (assoc "+") (assoc "-")))))
 
 (defun poke--smie-forward-token ()
-  ;; FIXME:
-  ;; Don't merge ":" or ";" with some preceding punctuation such as ">".
-  (smie-default-forward-token))
+  (let ((case-fold-search nil)
+        (token (smie-default-forward-token)))
+    (cond
+     ;; Handle if-(
+     ((and (or (equal token "") (not token)) (looking-at "("))
+      (when (looking-back "if[ \t\n]*")
+        (forward-char 1)
+        "if-("))
+     ;; Handle if-)
+     ((and (or (equal token "") (not token)) (looking-at ")"))
+      (condition-case nil
+          (when (save-excursion
+                  (forward-char 1)
+                  (let ((forward-sexp-function nil))
+                    (backward-sexp))
+                  (looking-back "if[ \t\n]*"))
+            (forward-char 1)
+            "if-)")
+        (scan-error
+         nil)))
+     (t
+      token))))
 
 (defun poke--smie-backward-token ()
   (forward-comment (- (point)))
@@ -301,7 +321,27 @@
    ((memq (char-before) '(?: ?\;))
     (forward-char -1)
     (string (char-after)))
-   (t (smie-default-backward-token))))
+   (t
+    (let ((case-fold-search nil)
+          (token (smie-default-backward-token)))
+      (cond
+       ;; Handle if-(
+       ((and (or (equal token "") (not token)) (looking-back "if[ \t\n]*("))
+        (forward-char -1)
+        "if-(")
+       ;; Handle if-)
+       ((and (or (equal token "") (not token)) (looking-back ")"))
+        (condition-case nil
+            (when (save-excursion
+                    (let ((forward-sexp-function nil))
+                      (backward-sexp))
+                    (looking-back "if[ \t\n]*"))
+              (forward-char -1)
+              "if-)")
+          (scan-error
+           nil)))
+       (t
+        token))))))
 
 (defun poke-smie-rules (token kind)
   (pcase (cons token kind)
